@@ -1,14 +1,19 @@
+## dsp
 sample_rate : 22050
 window_length: 50.0 # ms
 hop_length: 12.5 # ms
-frames_per_sequence: 44
-num_pad_frames: 40
 mel_min: 1.0e-5 ## need .0 to make it a float
 mel_dim: 80
 n_fft: 2048
-tf_data_dir : "./tf_data"
+
+## wavegru
+embed_dim: 32
+rnn_dim: 512
+frames_per_sequence: 44
+num_pad_frames: 40
 
 ## training
-batch_size : 32
+batch_size : 256
 lr: 1024.0e-6
-model_prefix: "wavegru_512"
+model_prefix: "wavegru_vocoder"
+tf_data_dir : "./tf_data"

@@ -46,8 +46,9 @@ class Upsample(pax.Module):
     Upsample melspectrogram to match raw audio sample rate.
     """
 
-    def __init__(self, upsample_factors=(5, 4, 15)):
-        super(Upsample, self).__init__()
+    def __init__(self, input_dim, upsample_factors=(5, 4, 15)):
+        super().__init__()
+        self.input_conv = pax.Conv1D(input_dim, 512, 1, with_bias=False)
         self.upsample_factors = upsample_factors
         self.residual_blocks = [residual_block(512, 3) for _ in range(10)]
         self.up_factors = upsample_factors[:-1]
@@ -57,6 +58,7 @@ class Upsample(pax.Module):
         self.final_tile = upsample_factors[-1]
 
     def __call__(self, x):
+        x = self.input_conv(x)
         for residual in self.residual_blocks:
             y = residual(x)
             pad = (x.shape[1] - y.shape[1]) // 2
@@ -76,10 +78,10 @@ class WaveGRU(pax.Module):
     WaveGRU vocoder model
     """
 
-    def __init__(self, embed_dim=32, rnn_dim=512):
-        super(WaveGRU, self).__init__()
+    def __init__(self, mel_dim=80, embed_dim=32, rnn_dim=512):
+        super().__init__()
         self.embed = pax.Embed(256, embed_dim)
-        self.upsample = Upsample()
+        self.upsample = Upsample(input_dim=mel_dim)
         self.rnn = pax.GRU(embed_dim + rnn_dim, rnn_dim)
         self.output = pax.Sequential(
             pax.Linear(rnn_dim, 256),
@@ -113,12 +115,12 @@ class WaveGRU(pax.Module):
         x = jnp.stack(x, axis=1)
         return x
 
-    def __call__(self, x, mel):
+    def __call__(self, mel, x):
         x = self.embed(x)
         y = self.upsample(mel)
         pad_left = (x.shape[1] - y.shape[1]) // 2
         pad_right = x.shape[1] - y.shape[1] - pad_left
-        x = x[:, pad_left:pad_right]
+        x = x[:, pad_left:-pad_right]
         x = jnp.concatenate((x, y), axis=-1)
         _, x = pax.scan(
             self.rnn,

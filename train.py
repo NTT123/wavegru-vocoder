@@ -2,7 +2,6 @@
 Train WaveGRU vocoder
 """
 
-
 import time
 from pathlib import Path
 from typing import Deque
@@ -21,17 +20,37 @@ from wavegru import WaveGRU
 CONFIG = load_config()
 
 
+def double_buffer(ds):
+    """
+    create a double-buffer iterator
+    """
+    batch = None
+
+    for next_batch in ds:
+        assert next_batch is not None
+        next_batch = jax.device_put(next_batch)
+        if batch is not None:
+            yield batch
+        batch = next_batch
+
+    if batch is not None:
+        yield batch
+
+
 def get_data_loader(data_dir: Path, batch_size: int):
     """
     return a data loader of mini-batches
     """
-    return (
+    it = (
         tf.data.experimental.load(str(data_dir), compression="GZIP")
-        .shuffle(500_000, seed=42)
+        .cache()
+        .repeat()
+        .shuffle(500_000)
         .batch(batch_size)
         .prefetch(tf.data.AUTOTUNE)
         .as_numpy_iterator()
     )
+    return double_buffer(it)
 
 
 def loss_fn(net, batch):
@@ -39,11 +58,12 @@ def loss_fn(net, batch):
     return negative log likelihood
     """
     mel, mu = batch
+    mel = mel.astype(jnp.float32)
     input_mu, target_mu = mu[:, :-1], mu[:, 1:]
     net, logit = pax.purecall(net, mel, input_mu)
     pad_left = (target_mu.shape[1] - logit.shape[1]) // 2
     pad_right = target_mu.shape[1] - logit.shape[1] - pad_left
-    target_mu = target_mu[:, pad_left:pad_right]
+    target_mu = target_mu[:, pad_left:-pad_right]
     llh = jax.nn.log_softmax(logit, axis=-1)
     llh = llh * jax.nn.one_hot(target_mu, num_classes=256, axis=-1)
     llh = jnp.sum(llh, axis=-1)
@@ -51,6 +71,7 @@ def loss_fn(net, batch):
     return loss, net
 
 
+@jax.jit
 def train_step(net, optim, batch):
     """
     one training step
@@ -64,7 +85,11 @@ def train(batch_size: int = CONFIG["batch_size"], lr: float = CONFIG["lr"]):
     """
     train wavegru model
     """
-    net = WaveGRU()
+    net = WaveGRU(
+        mel_dim=CONFIG["mel_dim"],
+        embed_dim=CONFIG["embed_dim"],
+        rnn_dim=CONFIG["rnn_dim"],
+    )
 
     def lr_decay(step):
         e = jnp.floor(step * 1.0 / 100_000)
@@ -74,7 +99,7 @@ def train(batch_size: int = CONFIG["batch_size"], lr: float = CONFIG["lr"]):
         opax.clip_by_global_norm(1.0),
         opax.scale_by_adam(),
         opax.scale_by_schedule(lr_decay),
-    )
+    ).init(net.parameters())
 
     data_loader = get_data_loader(CONFIG["tf_data_dir"], batch_size)
     step = -1
@@ -85,10 +110,9 @@ def train(batch_size: int = CONFIG["batch_size"], lr: float = CONFIG["lr"]):
         net, optim = jax.device_put((net, optim))
 
     start = time.perf_counter()
-    losses = Deque(maxlen=100)
+    losses = Deque(maxlen=1000)
     for batch in data_loader:
         step += 1
-        batch = jax.device_put(batch)
         net, optim, loss = train_step(net, optim, batch)
         losses.append(loss)
 
@@ -97,7 +121,11 @@ def train(batch_size: int = CONFIG["batch_size"], lr: float = CONFIG["lr"]):
             end = time.perf_counter()
             duration = end - start
             start = end
-            print("step  {:07d}  loss {:.3f}  {:.2f}s".format(step, loss, duration))
+            print(
+                "step  {:07d}  loss {:.3f}  LR {:.3e}  {:.2f}s".format(
+                    step, loss, optim[-1].learning_rate, duration
+                )
+            )
 
         if step % 1000 == 0:
             save_ckpt(step, net, optim, CONFIG["ckpt_dir"], CONFIG["model_prefix"])
