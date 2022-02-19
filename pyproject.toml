@@ -1,0 +1,24 @@
+[tool.poetry]
+name = "wavegru-vocoder"
+version = "0.1.0"
+description = "WaveGRU vocoder for tts applications"
+authors = ["NTT123 <9960521+NTT123@users.noreply.github.com>"]
+license = "MIT"
+
+[tool.poetry.dependencies]
+python = ">=3.8,<3.11"
+jax = "^0.3.1"
+jaxlib = "^0.3.0"
+pax3 = "^0.5.5"
+opax = "^0.2.8"
+PyYAML = "^6.0"
+tqdm = "^4.62.3"
+librosa = "^0.9.1"
+pooch = "^1.6.0"
+tensorflow = "^2.8.0"
+
+[tool.poetry.dev-dependencies]
+
+[build-system]
+requires = ["poetry-core>=1.0.0"]
+build-backend = "poetry.core.masonry.api"
