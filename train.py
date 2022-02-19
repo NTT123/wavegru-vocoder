@@ -5,6 +5,7 @@ Train WaveGRU vocoder
 
 import time
 from pathlib import Path
+from typing import Deque
 
 import fire
 import jax
@@ -17,7 +18,7 @@ import yaml
 from utils import load_ckpt, load_config, save_ckpt
 from wavegru import WaveGRU
 
-config = load_config()
+CONFIG = load_config()
 
 
 def get_data_loader(data_dir: Path, batch_size: int):
@@ -40,6 +41,9 @@ def loss_fn(net, batch):
     mel, mu = batch
     input_mu, target_mu = mu[:, :-1], mu[:, 1:]
     net, logit = pax.purecall(net, mel, input_mu)
+    pad_left = (target_mu.shape[1] - logit.shape[1]) // 2
+    pad_right = target_mu.shape[1] - logit.shape[1] - pad_left
+    target_mu = target_mu[:, pad_left:pad_right]
     llh = jax.nn.log_softmax(logit, axis=-1)
     llh = llh * jax.nn.one_hot(target_mu, num_classes=256, axis=-1)
     llh = jnp.sum(llh, axis=-1)
@@ -56,7 +60,7 @@ def train_step(net, optim, batch):
     return net, optim, loss
 
 
-def train(batch_size: int = config["batch_size"], lr: float = config["lr"]):
+def train(batch_size: int = CONFIG["batch_size"], lr: float = CONFIG["lr"]):
     """
     train wavegru model
     """
@@ -72,32 +76,31 @@ def train(batch_size: int = config["batch_size"], lr: float = config["lr"]):
         opax.scale_by_schedule(lr_decay),
     )
 
-    data_loader = get_data_loader(config["tf_data_dir"], batch_size)
+    data_loader = get_data_loader(CONFIG["tf_data_dir"], batch_size)
     step = -1
-    ckpts = sorted(Path(config["ckpt_dir"]).glob(f"{config['model_prefix']}_*.ckpt"))
+    ckpts = sorted(Path(CONFIG["ckpt_dir"]).glob(f"{CONFIG['model_prefix']}_*.ckpt"))
     if len(ckpts) > 0:
         print(f"Load checkpoint at {ckpts[-1]}")
         step, net, optim = load_ckpt(net, optim, ckpts[-1])
         net, optim = jax.device_put((net, optim))
 
-    total_loss = 0.0
     start = time.perf_counter()
+    losses = Deque(maxlen=100)
     for batch in data_loader:
         step += 1
         batch = jax.device_put(batch)
         net, optim, loss = train_step(net, optim, batch)
-        total_loss += loss
+        losses.append(loss)
 
         if step % 100 == 0:
+            loss = sum(losses).item() / len(losses)
             end = time.perf_counter()
             duration = end - start
             start = end
-            loss = total_loss / 100
             print("step  {:07d}  loss {:.3f}  {:.2f}s".format(step, loss, duration))
-            total_loss = 0.0
 
         if step % 1000 == 0:
-            save_ckpt(step, net, optim, config["ckpt_dir"], config["model_prefix"])
+            save_ckpt(step, net, optim, CONFIG["ckpt_dir"], CONFIG["model_prefix"])
 
 
 if __name__ == "__main__":

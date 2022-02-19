@@ -116,6 +116,9 @@ class WaveGRU(pax.Module):
     def __call__(self, x, mel):
         x = self.embed(x)
         y = self.upsample(mel)
+        pad_left = (x.shape[1] - y.shape[1]) // 2
+        pad_right = x.shape[1] - y.shape[1] - pad_left
+        x = x[:, pad_left:pad_right]
         x = jnp.concatenate((x, y), axis=-1)
         _, x = pax.scan(
             self.rnn,

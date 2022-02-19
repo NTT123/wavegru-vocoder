@@ -66,3 +66,8 @@ for wav_file in tqdm(wav_files):
     mu_file = mel_file.with_suffix(".mu")
     np.save(mel_file, mel)
     np.save(mu_file, mu)
+
+
+print(f"Preprocessed data is located at {args.out_dir}")
+print()
+print(f"Run 'python tf_data.py {args.out_dir}' to create tf dataset")

@@ -18,10 +18,10 @@ python extract_mel_mu.py <wav_dir> <ft_dir>
 Step 3: prepare tf dataset
 
 ```sh
-python tf_data.py <ft_dir> <tf_data_dir>
+python tf_data.py <ft_dir>
 ```
 
-Step 4: train wavegru
+Step 4: train wavegru vocoder
 
 ```sh
 python train.py
