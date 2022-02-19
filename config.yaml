@@ -17,3 +17,4 @@ batch_size : 256
 lr: 1024.0e-6
 model_prefix: "wavegru_vocoder"
 tf_data_dir : "./tf_data"
+ckpt_dir : "./ckpts"
