@@ -126,7 +126,7 @@ def train(batch_size: int = CONFIG["batch_size"], lr: float = CONFIG["lr"]):
                 )
             )
 
-        if step % 1000 == 0:
+        if step % 10_000 == 0:
             save_ckpt(step, net, optim, CONFIG["ckpt_dir"], CONFIG["model_prefix"])
 
 
