@@ -19,7 +19,8 @@ def extract_mel_mu(
     """
     y, rate = librosa.load(wav_file, sr=sample_rate)
     y = librosa.effects.preemphasis(y, coef=0.86)
-    y = np.clip(y, a_min=-1.0, a_max=1.0)
+    scale = max(1.0, np.max(np.abs(y)))
+    y = y / scale
     mu = librosa.mu_compress(y, mu=255, quantize=True) + 127
 
     hop = int(hop_length * rate / 1000)
