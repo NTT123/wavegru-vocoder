@@ -2,9 +2,10 @@
 Utility functions
 """
 
-import yaml
-from pathlib import Path
 import pickle
+from pathlib import Path
+
+import yaml
 
 
 def load_config():
@@ -36,6 +37,8 @@ def load_ckpt(net, optim, ckpt_file):
     with open(ckpt_file, "rb") as f:
         dic = pickle.load(f)
 
-    net = net.load_state_dict(dic["net_state_dict"])
-    optim = optim.load_state_dict(dic["optim_state_dict"])
+    if net is not None:
+        net = net.load_state_dict(dic["net_state_dict"])
+    if optim is not None:
+        optim = optim.load_state_dict(dic["optim_state_dict"])
     return dic["step"], net, optim

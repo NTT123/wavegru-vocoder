@@ -43,9 +43,8 @@ def get_data_loader(data_dir: Path, batch_size: int):
     """
     it = (
         tf.data.experimental.load(str(data_dir), compression="GZIP")
-        .cache()
         .repeat()
-        .shuffle(500_000)
+        .shuffle(200_000)
         .batch(batch_size)
         .prefetch(tf.data.AUTOTUNE)
         .as_numpy_iterator()
@@ -110,7 +109,7 @@ def train(batch_size: int = CONFIG["batch_size"], lr: float = CONFIG["lr"]):
         net, optim = jax.device_put((net, optim))
 
     start = time.perf_counter()
-    losses = Deque(maxlen=1000)
+    losses = Deque(maxlen=500)
     for batch in data_loader:
         step += 1
         net, optim, loss = train_step(net, optim, batch)

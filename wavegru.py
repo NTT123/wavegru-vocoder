@@ -89,7 +89,7 @@ class WaveGRU(pax.Module):
             pax.Linear(256, 256),
         )
 
-    def inference(self, mel):
+    def inference(self, mel, seed=42):
         """
         generate waveform form melspectrogram
         """
@@ -108,11 +108,11 @@ class WaveGRU(pax.Module):
         x = jnp.array([127], dtype=jnp.int32)
         rnn_state = self.rnn.initial_state(1)
         output = []
+        rng_key = jax.random.PRNGKey(seed)
         for i in tqdm(range(y.shape[1])):
-            rnn_state, rng_key, x = step(rnn_state, mel[i], rng_key, x)
+            rnn_state, rng_key, x = step(rnn_state, y[:, i], rng_key, x)
             output.append(x)
-
-        x = jnp.stack(x, axis=1)
+        x = jnp.concatenate(output, axis=0)
         return x
 
     def __call__(self, mel, x):
