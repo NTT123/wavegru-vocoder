@@ -34,7 +34,7 @@ mel = np.pad(mel, [(0, 0), (pad, pad), (0, 0)], mode="reflect")
 wav = pax.pure(lambda net, mel: net.inference(mel))(net, mel)
 wav = jax.device_get(wav)
 wav = librosa.mu_expand(wav - 127, mu=255)
-wav = librosa.effects.deemphasis(wav, coef=0.86)
+# wav = librosa.effects.deemphasis(wav, coef=0.86)
 wav = wav / np.max(np.abs(wav))
 wavfile.write(str(args.output), 22050, wav)
 

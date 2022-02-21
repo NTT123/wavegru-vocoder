@@ -8,14 +8,14 @@ import pax
 from tqdm.cli import tqdm
 
 
-def conv_block(in_ft: int, out_ft: int, kernel_size: int, padding: str):
+def conv_block(in_ft: int, out_ft: int, kernel_size: int, padding: str, with_relu=True):
     """
-    conv + batchnorm + relu
+    conv >> batchnorm >> relu
     """
     return pax.Sequential(
         pax.Conv1D(in_ft, out_ft, kernel_size, padding=padding, with_bias=False),
         pax.BatchNorm1D(out_ft),
-        jax.nn.relu,
+        jax.nn.relu if with_relu else lambda x: x,
     )
 
 
@@ -24,9 +24,9 @@ def residual_block(dim: int, kernel_size) -> pax.Sequential:
     conv >> relu >> conv
     """
     return pax.Sequential(
-        conv_block(dim, dim, kernel_size=kernel_size, padding="VALID"),
+        conv_block(dim, dim, kernel_size=kernel_size, padding="VALID", with_relu=False),
         jax.nn.relu,
-        conv_block(dim, dim, kernel_size=kernel_size, padding="VALID"),
+        conv_block(dim, dim, kernel_size=kernel_size, padding="VALID", with_relu=False),
     )
 
 
