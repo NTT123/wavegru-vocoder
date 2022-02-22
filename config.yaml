@@ -11,10 +11,11 @@ embed_dim: 32
 rnn_dim: 512
 frames_per_sequence: 44
 num_pad_frames: 40
+upsample_factors: [5, 5, 11]
 
 ## training
 batch_size : 256
 lr: 1024.0e-6
-model_prefix: "wavegru_vocoder"
+model_prefix: "wavegru_vocoder_correct_scales"
 tf_data_dir : "./tf_data"
 ckpt_dir : "./ckpts"

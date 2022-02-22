@@ -88,6 +88,7 @@ def train(batch_size: int = CONFIG["batch_size"], lr: float = CONFIG["lr"]):
         mel_dim=CONFIG["mel_dim"],
         embed_dim=CONFIG["embed_dim"],
         rnn_dim=CONFIG["rnn_dim"],
+        upsample_factors=CONFIG["upsample_factors"],
     )
 
     def lr_decay(step):

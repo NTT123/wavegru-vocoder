@@ -41,8 +41,10 @@ wav_files = sorted(args.wav_dir.glob("*.wav"))
 args.out_dir.mkdir(parents=True, exist_ok=True)
 
 sr = config["sample_rate"]
-window_length = sr * 50 // 1000
-hop_length = sr * 125 // 10_000
+window_length = int(sr * config["window_length"] / 1000)
+hop_length = int(sr * config["hop_length"] / 1000)
+assert np.prod(config["upsample_factors"]) == hop_length
+
 mel_filter = MelFilter(
     sr,
     config["n_fft"],

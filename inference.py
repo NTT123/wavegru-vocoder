@@ -24,6 +24,7 @@ net = WaveGRU(
     mel_dim=CONFIG["mel_dim"],
     embed_dim=CONFIG["embed_dim"],
     rnn_dim=CONFIG["rnn_dim"],
+    upsample_factors=CONFIG["upsample_factors"],
 )
 _, net, _ = load_ckpt(net, None, args.model)
 net = net.eval()

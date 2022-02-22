@@ -46,7 +46,7 @@ class Upsample(pax.Module):
     Upsample melspectrogram to match raw audio sample rate.
     """
 
-    def __init__(self, input_dim, upsample_factors=(5, 4, 15)):
+    def __init__(self, input_dim, upsample_factors):
         super().__init__()
         self.input_conv = pax.Conv1D(input_dim, 512, 1, with_bias=False)
         self.upsample_factors = upsample_factors
@@ -78,10 +78,12 @@ class WaveGRU(pax.Module):
     WaveGRU vocoder model
     """
 
-    def __init__(self, mel_dim=80, embed_dim=32, rnn_dim=512):
+    def __init__(
+        self, mel_dim=80, embed_dim=32, rnn_dim=512, upsample_factors=(5, 5, 11)
+    ):
         super().__init__()
         self.embed = pax.Embed(256, embed_dim)
-        self.upsample = Upsample(input_dim=mel_dim)
+        self.upsample = Upsample(input_dim=mel_dim, upsample_factors=upsample_factors)
         self.rnn = pax.GRU(embed_dim + rnn_dim, rnn_dim)
         self.output = pax.Sequential(
             pax.Linear(rnn_dim, 256),
