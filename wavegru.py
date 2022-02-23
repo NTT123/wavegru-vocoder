@@ -8,25 +8,23 @@ import pax
 from tqdm.cli import tqdm
 
 
-def conv_block(in_ft: int, out_ft: int, kernel_size: int, padding: str, with_relu=True):
-    """
-    conv >> batchnorm >> relu
-    """
-    return pax.Sequential(
-        pax.Conv1D(in_ft, out_ft, kernel_size, padding=padding, with_bias=False),
-        pax.BatchNorm1D(out_ft),
-        jax.nn.relu if with_relu else lambda x: x,
-    )
+class ReLU(pax.Module):
+    def __call__(self, x):
+        return jax.nn.relu(x)
 
 
-def residual_block(dim: int, kernel_size) -> pax.Sequential:
+def dilated_residual_conv_block(dim, kernel, stride, dilation):
     """
-    conv >> relu >> conv
+    Use dilated convs to enlarge the receptive field
     """
+
     return pax.Sequential(
-        conv_block(dim, dim, kernel_size=kernel_size, padding="VALID", with_relu=False),
-        jax.nn.relu,
-        conv_block(dim, dim, kernel_size=kernel_size, padding="VALID", with_relu=False),
+        pax.Conv1D(dim, dim, kernel, stride, dilation, "VALID"),
+        pax.BatchNorm1D(dim),
+        ReLU(),
+        pax.Conv1D(dim, dim, 1, 1, 1, "VALID"),
+        pax.BatchNorm1D(dim),
+        ReLU(),
     )
 
 
@@ -41,6 +39,18 @@ def tile_1d(x, factor):
     return x
 
 
+def up_block(dim, kernel):
+    """
+    Conv transpose >> BatchNorm >> ReLU
+    """
+    s = kernel // 2
+    return pax.Sequential(
+        pax.Conv1DTranspose(dim, dim, kernel, stride=s, padding=[(s, s)]),
+        pax.BatchNorm1D(dim),
+        ReLU(),
+    )
+
+
 class Upsample(pax.Module):
     """
     Upsample melspectrogram to match raw audio sample rate.
@@ -50,24 +60,22 @@ class Upsample(pax.Module):
         super().__init__()
         self.input_conv = pax.Conv1D(input_dim, 512, 1, with_bias=False)
         self.upsample_factors = upsample_factors
-        self.residual_blocks = [residual_block(512, 3) for _ in range(10)]
-        self.up_factors = upsample_factors[:-1]
-        self.up_conv_blocks = [
-            conv_block(512, 512, x * 2, "VALID") for x in self.up_factors
+        self.dilated_convs = [
+            dilated_residual_conv_block(512, 3, 1, 2 ** i) for i in range(5)
         ]
+        self.up_factors = upsample_factors[:-1]
+        self.up_conv_blocks = [up_block(512, x * 2) for x in self.up_factors]
         self.final_tile = upsample_factors[-1]
 
     def __call__(self, x):
         x = self.input_conv(x)
-        for residual in self.residual_blocks:
+        for residual in self.dilated_convs:
             y = residual(x)
             pad = (x.shape[1] - y.shape[1]) // 2
             x = x[:, pad:-pad, :] + y
-            x = jax.nn.relu(x)
 
-        for i, conv in enumerate(self.up_conv_blocks):
-            x = tile_1d(x, self.up_factors[i])
-            x = conv(x)
+        for f in self.up_conv_blocks:
+            x = f(x)
 
         x = tile_1d(x, self.final_tile)
         return x

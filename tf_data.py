@@ -25,7 +25,7 @@ num_pad_frames = config["num_pad_frames"]
 assert num_pad_frames % 2 == 0
 num_center_frames = frames_per_sequence - num_pad_frames
 pad = num_pad_frames // 2
-
+mel_min = config["mel_min"]
 
 def data_generator():
     """
@@ -43,7 +43,7 @@ def data_generator():
         assert L <= L1
         mu = mu[: L * hop_length]
         mu = np.pad(mu, [(1, 0)], mode="constant", constant_values=127)
-        mel = np.pad(mel, [(pad, pad), (0, 0)], mode="reflect")
+        mel = np.pad(mel, [(pad, pad), (0, 0)], constant_values=np.log(mel_min))
 
         L = mel.shape[0]
         for i in range(0, L - frames_per_sequence, num_center_frames):
