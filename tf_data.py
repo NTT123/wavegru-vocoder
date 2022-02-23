@@ -27,6 +27,7 @@ num_center_frames = frames_per_sequence - num_pad_frames
 pad = num_pad_frames // 2
 mel_min = config["mel_min"]
 
+
 def data_generator():
     """
     yield mel, mu

@@ -19,10 +19,10 @@ def dilated_residual_conv_block(dim, kernel, stride, dilation):
     """
 
     return pax.Sequential(
-        pax.Conv1D(dim, dim, kernel, stride, dilation, "VALID"),
+        pax.Conv1D(dim, dim, kernel, stride, dilation, "VALID", with_bias=False),
         pax.BatchNorm1D(dim),
         ReLU(),
-        pax.Conv1D(dim, dim, 1, 1, 1, "VALID"),
+        pax.Conv1D(dim, dim, 1, 1, 1, "VALID", with_bias=False),
         pax.BatchNorm1D(dim),
         ReLU(),
     )
@@ -39,13 +39,13 @@ def tile_1d(x, factor):
     return x
 
 
-def up_block(dim, kernel):
+def up_block(dim, factor):
     """
-    Conv transpose >> BatchNorm >> ReLU
+    Tile >> Conv >> BatchNorm >> ReLU
     """
-    s = kernel // 2
     return pax.Sequential(
-        pax.Conv1DTranspose(dim, dim, kernel, stride=s, padding=[(s, s)]),
+        lambda x: tile_1d(x, factor),
+        pax.Conv1D(dim, dim, 2 * factor, stride=1, padding="VALID", with_bias=False),
         pax.BatchNorm1D(dim),
         ReLU(),
     )
@@ -64,7 +64,7 @@ class Upsample(pax.Module):
             dilated_residual_conv_block(512, 3, 1, 2 ** i) for i in range(5)
         ]
         self.up_factors = upsample_factors[:-1]
-        self.up_conv_blocks = [up_block(512, x * 2) for x in self.up_factors]
+        self.up_blocks = [up_block(512, x) for x in self.up_factors]
         self.final_tile = upsample_factors[-1]
 
     def __call__(self, x):
@@ -74,7 +74,7 @@ class Upsample(pax.Module):
             pad = (x.shape[1] - y.shape[1]) // 2
             x = x[:, pad:-pad, :] + y
 
-        for f in self.up_conv_blocks:
+        for f in self.up_blocks:
             x = f(x)
 
         x = tile_1d(x, self.final_tile)

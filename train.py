@@ -124,7 +124,8 @@ def train(batch_size: int = CONFIG["batch_size"], lr: float = CONFIG["lr"]):
             print(
                 "step  {:07d}  loss {:.3f}  LR {:.3e}  {:.2f}s".format(
                     step, loss, optim[-1].learning_rate, duration
-                )
+                ),
+                flush=True,
             )
 
         if step % 10_000 == 0:
