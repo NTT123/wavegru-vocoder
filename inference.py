@@ -31,7 +31,11 @@ net = net.eval()
 net = jax.device_put(net)
 mel = np.load(args.mel)
 pad = CONFIG["num_pad_frames"] // 2
-mel = np.pad(mel, [(0, 0), (pad, pad), (0, 0)], mode="reflect")
+mel = np.pad(
+    mel,
+    [(0, 0), (pad, pad), (0, 0)],
+    constant_values=np.log(CONFIG["mel_min"]),
+)
 wav = pax.pure(lambda net, mel: net.inference(mel))(net, mel)
 wav = jax.device_get(wav)
 wav = librosa.mu_expand(wav - 127, mu=255)

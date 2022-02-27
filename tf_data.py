@@ -5,9 +5,10 @@ Create tensorflow dataset from mel/mu files.
 import random
 from argparse import ArgumentParser
 from pathlib import Path
-from tqdm.cli import tqdm
+
 import numpy as np
 import tensorflow as tf
+from tqdm.cli import tqdm
 
 from utils import load_config
 
@@ -65,7 +66,7 @@ output_signature = (
 dataset = tf.data.Dataset.from_generator(
     data_generator, output_signature=output_signature
 )
-print("Dataset definition: ", dataset)
+print("Dataset definition:", dataset)
 
 
 def custom_shard_func(*a):

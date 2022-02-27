@@ -17,7 +17,6 @@ def dilated_residual_conv_block(dim, kernel, stride, dilation):
     """
     Use dilated convs to enlarge the receptive field
     """
-
     return pax.Sequential(
         pax.Conv1D(dim, dim, kernel, stride, dilation, "VALID", with_bias=False),
         pax.BatchNorm1D(dim),
@@ -87,16 +86,16 @@ class WaveGRU(pax.Module):
     """
 
     def __init__(
-        self, mel_dim=80, embed_dim=32, rnn_dim=512, upsample_factors=(5, 5, 11)
+        self, mel_dim=80, embed_dim=32, rnn_dim=512, upsample_factors=(5, 4, 3, 5)
     ):
         super().__init__()
         self.embed = pax.Embed(256, embed_dim)
         self.upsample = Upsample(input_dim=mel_dim, upsample_factors=upsample_factors)
         self.rnn = pax.GRU(embed_dim + rnn_dim, rnn_dim)
         self.output = pax.Sequential(
-            pax.Linear(rnn_dim, 256),
+            pax.Linear(rnn_dim, rnn_dim),
             jax.nn.relu,
-            pax.Linear(256, 256),
+            pax.Linear(rnn_dim, 256),
         )
 
     def inference(self, mel, seed=42):
