@@ -93,7 +93,7 @@ def train(batch_size: int = CONFIG["batch_size"], lr: float = CONFIG["lr"]):
 
     def lr_decay(step):
         e = jnp.floor(step * 1.0 / 100_000)
-        return jnp.exp(-e) * lr
+        return jnp.exp2(-e) * lr
 
     optim = opax.chain(
         opax.clip_by_global_norm(1.0),

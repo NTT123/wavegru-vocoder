@@ -29,7 +29,9 @@ net = WaveGRU(
 _, net, _ = load_ckpt(net, None, args.model)
 net = net.eval()
 net = jax.device_put(net)
-mel = np.load(args.mel)
+mel = np.load(args.mel).astype(np.float32)
+if len(mel.shape) == 2:
+    mel = mel[None]
 pad = CONFIG["num_pad_frames"] // 2
 mel = np.pad(
     mel,
@@ -41,6 +43,6 @@ wav = jax.device_get(wav)
 wav = librosa.mu_expand(wav - 127, mu=255)
 # wav = librosa.effects.deemphasis(wav, coef=0.86)
 wav = wav / np.max(np.abs(wav))
-wavfile.write(str(args.output), 22050, wav)
+wavfile.write(str(args.output), CONFIG["sample_rate"], wav)
 
 print(f"Write output to file '{args.output}'")

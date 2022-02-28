@@ -16,6 +16,7 @@ tqdm = "^4.62.3"
 librosa = "^0.9.1"
 pooch = "^1.6.0"
 tensorflow = "^2.8.0"
+soxr = "^0.2.7"
 
 [tool.poetry.dev-dependencies]
 

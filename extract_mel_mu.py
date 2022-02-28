@@ -21,7 +21,7 @@ def extract_mel_mu(
     """
     We use np.float16 to save memory.
     """
-    y, _ = librosa.load(wav_file, sr=sample_rate)
+    y, _ = librosa.load(wav_file, sr=sample_rate, res_type="soxr_hq")
     num_frames = len(y) // hop_length - window_length // hop_length + 1
     padded_y = np.pad(y, [(0, maxlen - len(y))])
     # y = librosa.effects.preemphasis(y, coef=0.86)
