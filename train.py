@@ -2,6 +2,7 @@
 Train WaveGRU vocoder
 """
 
+import os
 import time
 from pathlib import Path
 from typing import Deque
@@ -12,12 +13,16 @@ import jax.numpy as jnp
 import opax
 import pax
 import tensorflow as tf
-import yaml
 
 from utils import load_ckpt, load_config, save_ckpt
 from wavegru import WaveGRU
 
 CONFIG = load_config()
+
+if "MODEL_PREFIX" in os.environ:
+    MODEL_PREFIX = os.environ["MODEL_PREFIX"]
+else:
+    MODEL_PREFIX = CONFIG["model_prefix"]
 
 
 def double_buffer(ds):
@@ -103,7 +108,7 @@ def train(batch_size: int = CONFIG["batch_size"], lr: float = CONFIG["lr"]):
 
     data_loader = get_data_loader(CONFIG["tf_data_dir"], batch_size)
     step = -1
-    ckpts = sorted(Path(CONFIG["ckpt_dir"]).glob(f"{CONFIG['model_prefix']}_*.ckpt"))
+    ckpts = sorted(Path(CONFIG["ckpt_dir"]).glob(f"{MODEL_PREFIX}_*.ckpt"))
     if len(ckpts) > 0:
         print(f"Load checkpoint at {ckpts[-1]}")
         step, net, optim = load_ckpt(net, optim, ckpts[-1])
@@ -129,7 +134,7 @@ def train(batch_size: int = CONFIG["batch_size"], lr: float = CONFIG["lr"]):
             )
 
         if step % 10_000 == 0:
-            save_ckpt(step, net, optim, CONFIG["ckpt_dir"], CONFIG["model_prefix"])
+            save_ckpt(step, net, optim, CONFIG["ckpt_dir"], MODEL_PREFIX)
 
 
 if __name__ == "__main__":
