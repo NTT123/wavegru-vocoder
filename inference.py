@@ -32,7 +32,7 @@ net = jax.device_put(net)
 mel = np.load(args.mel).astype(np.float32)
 if len(mel.shape) == 2:
     mel = mel[None]
-pad = CONFIG["num_pad_frames"] // 2
+pad = CONFIG["num_pad_frames"] // 2 + 1
 mel = np.pad(
     mel,
     [(0, 0), (pad, pad), (0, 0)],

@@ -24,7 +24,7 @@ def extract_mel_mu(
     y, _ = librosa.load(wav_file, sr=sample_rate, res_type="soxr_hq")
     scale = max(1, np.max(np.abs(y)))
     y = y / scale  # rescale to avoid overflow [-1, 1] interval
-    num_frames = len(y) // hop_length - window_length // hop_length + 1
+    num_frames = len(y) // hop_length + 1
     padded_y = np.pad(y, [(0, maxlen - len(y))])
     # y = librosa.effects.preemphasis(y, coef=0.86)
     mu = librosa.mu_compress(y, mu=255, quantize=True) + 127
