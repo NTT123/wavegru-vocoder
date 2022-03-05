@@ -41,7 +41,7 @@ def data_generator():
         mel = np.load(mel_file)
 
         L = len(mu) // hop_length + 1
-        mel = mel[: L]
+        mel = mel[:L]
         mu = mu[: L * hop_length]
         mu = np.pad(mu, [(1, 0)], mode="constant", constant_values=127)
         mel = np.pad(mel, [(pad, pad), (0, 0)], constant_values=np.log(mel_min))
