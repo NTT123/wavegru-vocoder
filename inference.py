@@ -2,6 +2,7 @@ from argparse import ArgumentParser
 from pathlib import Path
 
 import jax
+import jax.numpy as jnp
 import librosa
 import numpy as np
 import pax
@@ -32,7 +33,7 @@ net = jax.device_put(net)
 mel = np.load(args.mel).astype(np.float32)
 if len(mel.shape) == 2:
     mel = mel[None]
-pad = CONFIG["num_pad_frames"] // 2 + 1
+pad = CONFIG["num_pad_frames"] // 2 + 2
 mel = np.pad(
     mel,
     [(0, 0), (pad, pad), (0, 0)],
@@ -41,8 +42,13 @@ mel = np.pad(
 wav = pax.pure(lambda net, mel: net.inference(mel))(net, mel)
 wav = jax.device_get(wav)
 wav = librosa.mu_expand(wav - 127, mu=255)
-# wav = librosa.effects.deemphasis(wav, coef=0.86)
-wav = wav / np.max(np.abs(wav))
+wav = librosa.effects.deemphasis(wav, coef=0.86)
+wav = wav * 2.0
+wav = wav / max(1.0, np.max(np.abs(wav)))
+wav = wav * 2 ** 15
+wav = jnp.clip(wav, a_min=-(2 ** 15), a_max=(2 ** 15) - 1)
+wav = wav.astype(np.int16)
+
 wavfile.write(str(args.output), CONFIG["sample_rate"], wav)
 
 print(f"Write output to file '{args.output}'")

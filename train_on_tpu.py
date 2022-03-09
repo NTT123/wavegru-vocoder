@@ -2,6 +2,7 @@
 Train WaveGRU vocoder on TPU
 """
 
+import math
 import os
 import time
 from functools import partial
@@ -90,6 +91,7 @@ def loss_fn(net, batch):
     return negative log likelihood
     """
     mel, mu = batch
+    mu = jnp.clip(mu, a_min=0, a_max=255)
     mel = mel.astype(jnp.float32)
     input_mu, target_mu = mu[:, :-1], mu[:, 1:]
     net, logit = pax.purecall(net, mel, input_mu)
@@ -160,6 +162,7 @@ def train(batch_size: int = CONFIG["batch_size"], lr: float = CONFIG["lr"]):
 
     start = time.perf_counter()
     losses = Deque(maxlen=500)
+    backup = (step, net, optim)
     for batch in data_loader:
         step += STEPS_PER_CALL
         net, optim, loss = multiple_train_step(net, optim, batch)
@@ -176,6 +179,13 @@ def train(batch_size: int = CONFIG["batch_size"], lr: float = CONFIG["lr"]):
                 ),
                 flush=True,
             )
+
+        if step % 1000 == 0:
+            if math.isfinite(loss):
+                backup = (step, net, optim)
+            else:
+                step, net, optim = backup
+                print("nan loss detected! Use backup checkpoint at step", step)
 
         if step % 10_000 == 0:
             net_, optim_ = jax.tree_map(lambda x: x[0], (net, optim))

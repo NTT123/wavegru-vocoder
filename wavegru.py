@@ -19,10 +19,10 @@ def dilated_residual_conv_block(dim, kernel, stride, dilation):
     """
     return pax.Sequential(
         pax.Conv1D(dim, dim, kernel, stride, dilation, "VALID", with_bias=False),
-        pax.BatchNorm1D(dim),
+        pax.LayerNorm(dim, -1, True, True),
         ReLU(),
         pax.Conv1D(dim, dim, 1, 1, 1, "VALID", with_bias=False),
-        pax.BatchNorm1D(dim),
+        pax.LayerNorm(dim, -1, True, True),
         ReLU(),
     )
 
@@ -45,7 +45,7 @@ def up_block(dim, factor):
     return pax.Sequential(
         lambda x: tile_1d(x, factor),
         pax.Conv1D(dim, dim, 2 * factor, stride=1, padding="VALID", with_bias=False),
-        pax.BatchNorm1D(dim),
+        pax.LayerNorm(dim, -1, True, True),
         ReLU(),
     )
 
@@ -57,7 +57,10 @@ class Upsample(pax.Module):
 
     def __init__(self, input_dim, upsample_factors):
         super().__init__()
-        self.input_conv = pax.Conv1D(input_dim, 512, 1, with_bias=False)
+        self.input_conv = pax.Sequential(
+            pax.Conv1D(input_dim, 512, 1, with_bias=False),
+            pax.LayerNorm(512, -1, True, True),
+        )
         self.upsample_factors = upsample_factors
         self.dilated_convs = [
             dilated_residual_conv_block(512, 3, 1, 2 ** i) for i in range(5)

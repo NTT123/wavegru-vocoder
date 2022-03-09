@@ -62,6 +62,7 @@ def loss_fn(net, batch):
     return negative log likelihood
     """
     mel, mu = batch
+    mu = jnp.clip(mu, a_min=0, a_max=255)
     mel = mel.astype(jnp.float32)
     input_mu, target_mu = mu[:, :-1], mu[:, 1:]
     net, logit = pax.purecall(net, mel, input_mu)

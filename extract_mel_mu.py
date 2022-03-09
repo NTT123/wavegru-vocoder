@@ -26,7 +26,8 @@ def extract_mel_mu(
     y = y / scale  # rescale to avoid overflow [-1, 1] interval
     num_frames = len(y) // hop_length + 1
     padded_y = np.pad(y, [(0, maxlen - len(y))])
-    # y = librosa.effects.preemphasis(y, coef=0.86)
+    # scale by 0.5 to avoid overflow when doing preemphasis
+    y = librosa.effects.preemphasis(y * 0.5, coef=0.86)
     mu = librosa.mu_compress(y, mu=255, quantize=True) + 127
     mel = mel_filter(padded_y[None])[0].astype(np.float16)
     return mel[:num_frames], mu
