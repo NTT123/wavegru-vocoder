@@ -2,7 +2,6 @@ from argparse import ArgumentParser
 from pathlib import Path
 
 import jax
-import jax.numpy as jnp
 import librosa
 import numpy as np
 import pax
@@ -46,7 +45,7 @@ wav = librosa.effects.deemphasis(wav, coef=0.86)
 wav = wav * 2.0
 wav = wav / max(1.0, np.max(np.abs(wav)))
 wav = wav * 2 ** 15
-wav = jnp.clip(wav, a_min=-(2 ** 15), a_max=(2 ** 15) - 1)
+wav = np.clip(wav, a_min=-(2 ** 15), a_max=(2 ** 15) - 1)
 wav = wav.astype(np.int16)
 
 wavfile.write(str(args.output), CONFIG["sample_rate"], wav)
