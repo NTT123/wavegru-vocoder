@@ -14,7 +14,7 @@ import opax
 import pax
 import tensorflow as tf
 
-from utils import load_ckpt, load_config, save_ckpt
+from utils import load_ckpt, load_config, save_ckpt, update_gru_mask
 from wavegru import WaveGRU
 
 CONFIG = load_config()
@@ -83,6 +83,9 @@ def train_step(net, optim, batch):
     """
     (loss, net), grads = pax.value_and_grad(loss_fn, has_aux=True)(net, batch)
     net, optim = opax.apply_gradients(net, optim, grads)
+    net = net.replace(rnn=net.gru_pruner(net.rnn))
+    net = net.replace(o1=net.o1_pruner(net.o1))
+    net = net.replace(o2=net.o2_pruner(net.o2))
     return net, optim, loss
 
 
@@ -107,7 +110,6 @@ def train(batch_size: int = CONFIG["batch_size"], lr: float = CONFIG["lr"]):
         opax.scale_by_schedule(lr_decay),
     ).init(net.parameters())
 
-    data_loader = get_data_loader(CONFIG["tf_data_dir"], batch_size)
     step = -1
     ckpts = sorted(Path(CONFIG["ckpt_dir"]).glob(f"{MODEL_PREFIX}_*.ckpt"))
     if len(ckpts) > 0:
@@ -117,6 +119,8 @@ def train(batch_size: int = CONFIG["batch_size"], lr: float = CONFIG["lr"]):
 
     start = time.perf_counter()
     losses = Deque(maxlen=500)
+    fast_update_gru_mask = jax.jit(update_gru_mask)
+    data_loader = get_data_loader(CONFIG["tf_data_dir"], batch_size)
     for batch in data_loader:
         step += 1
         net, optim, loss = train_step(net, optim, batch)
@@ -127,12 +131,16 @@ def train(batch_size: int = CONFIG["batch_size"], lr: float = CONFIG["lr"]):
             end = time.perf_counter()
             duration = end - start
             start = end
+            sparsity = net.gru_pruner.compute_sparsity(step).item()
             print(
-                "step  {:07d}  loss {:.3f}  LR {:.3e}  {:.2f}s".format(
-                    step, loss, optim[-1].learning_rate, duration
+                "step  {:07d}  loss {:.3f}  LR {:.3e}  sparsity {:.0%}  {:.2f}s".format(
+                    step, loss, optim[-1].learning_rate, sparsity, duration
                 ),
                 flush=True,
             )
+
+        if step % net.gru_pruner.update_freq == 0:
+            net = fast_update_gru_mask(jnp.array(step), net)
 
         if step % 10_000 == 0:
             save_ckpt(step, net, optim, CONFIG["ckpt_dir"], MODEL_PREFIX)

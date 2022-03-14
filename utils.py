@@ -5,6 +5,7 @@ Utility functions
 import pickle
 from pathlib import Path
 
+import pax
 import yaml
 
 
@@ -42,3 +43,11 @@ def load_ckpt(net, optim, ckpt_file):
     if optim is not None:
         optim = optim.load_state_dict(dic["optim_state_dict"])
     return dic["step"], net, optim
+
+
+@pax.pure
+def update_gru_mask(step, net):
+    net.gru_pruner.update_mask(step, net.rnn)
+    net.o1_pruner.update_mask(step, net.o1)
+    net.o2_pruner.update_mask(step, net.o2)
+    return net

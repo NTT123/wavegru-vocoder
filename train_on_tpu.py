@@ -13,11 +13,12 @@ import fire
 import jax
 import jax.numpy as jnp
 import jax.tools.colab_tpu
+import numpy as np
 import opax
 import pax
 import tensorflow as tf
 
-from utils import load_ckpt, load_config, save_ckpt
+from utils import load_ckpt, load_config, save_ckpt, update_gru_mask
 from wavegru import WaveGRU
 
 # TPU setup
@@ -44,7 +45,7 @@ def batch_reshape(x, K):
     add a new first dimension
     """
     N, *L = x.shape
-    return jnp.reshape(x, (K, N // K, *L))
+    return np.reshape(x, (K, N // K, *L))
 
 
 def _device_put_sharded(sharded_tree):
@@ -115,6 +116,9 @@ def train_step(net_and_optim, batch):
     jax.lax.pmean(grads, axis_name="i")
 
     net, optim = opax.apply_gradients(net, optim, grads)
+    net = net.replace(rnn=net.gru_pruner(net.rnn))
+    net = net.replace(o1=net.o1_pruner(net.o1))
+    net = net.replace(o2=net.o2_pruner(net.o2))
     return (net, optim), loss
 
 
@@ -149,7 +153,6 @@ def train(batch_size: int = CONFIG["batch_size"], lr: float = CONFIG["lr"]):
         opax.scale_by_schedule(lr_decay),
     ).init(net.parameters())
 
-    data_loader = get_data_loader(CONFIG["tf_data_dir"], batch_size * STEPS_PER_CALL)
     step = -STEPS_PER_CALL
     ckpts = sorted(Path(CONFIG["ckpt_dir"]).glob(f"{MODEL_PREFIX}_*.ckpt"))
     if len(ckpts) > 0:
@@ -163,6 +166,8 @@ def train(batch_size: int = CONFIG["batch_size"], lr: float = CONFIG["lr"]):
     start = time.perf_counter()
     losses = Deque(maxlen=500)
     backup = (step, net, optim)
+    pmap_update_gru_mask = jax.pmap(update_gru_mask, axis_name="i")
+    data_loader = get_data_loader(CONFIG["tf_data_dir"], batch_size * STEPS_PER_CALL)
     for batch in data_loader:
         step += STEPS_PER_CALL
         net, optim, loss = multiple_train_step(net, optim, batch)
@@ -173,12 +178,17 @@ def train(batch_size: int = CONFIG["batch_size"], lr: float = CONFIG["lr"]):
             end = time.perf_counter()
             duration = end - start
             start = end
+            sparsity = net.gru_pruner.compute_sparsity(step).item()
             print(
-                "step  {:07d}  loss {:.3f}  LR {:.3e}  {:.2f}s".format(
-                    step, loss, optim[-1].learning_rate[0], duration
+                "step  {:07d}  loss {:.3f}  LR {:.3e}  sparsity {:.0%}  {:.2f}s".format(
+                    step, loss, optim[-1].learning_rate[0], sparsity, duration
                 ),
                 flush=True,
             )
+
+        if step % net.gru_pruner.update_freq == 0:
+            pstep = jax.device_put_replicated(jnp.array(step), DEVICES)
+            net = pmap_update_gru_mask(pstep, net)
 
         if step % 1000 == 0:
             if math.isfinite(loss):
