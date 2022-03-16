@@ -29,7 +29,6 @@ NUM_DEVICES = len(DEVICES)
 STEPS_PER_CALL = 10
 print("Devices:", DEVICES)
 
-
 CONFIG = load_config()
 
 if "MODEL_PREFIX" in os.environ:
@@ -107,29 +106,31 @@ def loss_fn(net, batch):
 
 
 @jax.jit
-def train_step(net_and_optim, batch):
+def train_step(net_optim_step, batch):
     """
     one training step
     """
-    net, optim = net_and_optim
+    net, optim, step = net_optim_step
+    step = step + 1
     (loss, net), grads = pax.value_and_grad(loss_fn, has_aux=True)(net, batch)
     jax.lax.pmean(grads, axis_name="i")
 
     net, optim = opax.apply_gradients(net, optim, grads)
+    net = update_gru_mask(step, net)
     net = net.replace(rnn=net.gru_pruner(net.rnn))
     net = net.replace(o1=net.o1_pruner(net.o1))
     net = net.replace(o2=net.o2_pruner(net.o2))
-    return (net, optim), loss
+    return (net, optim, step), loss
 
 
 @partial(jax.pmap, axis_name="i")
-def multiple_train_step(net, optim, batch):
+def multiple_train_step(step, net, optim, batch):
     """
     multiple training steps
     """
     batch = jax.tree_map(partial(batch_reshape, K=STEPS_PER_CALL), batch)
-    (net, optim), losses = pax.scan(train_step, (net, optim), batch)
-    return net, optim, jnp.mean(losses)
+    (net, optim, step), losses = pax.scan(train_step, (net, optim, step), batch)
+    return step, net, optim, jnp.mean(losses)
 
 
 def train(batch_size: int = CONFIG["batch_size"], lr: float = CONFIG["lr"]):
@@ -144,7 +145,7 @@ def train(batch_size: int = CONFIG["batch_size"], lr: float = CONFIG["lr"]):
     )
 
     def lr_decay(step):
-        e = jnp.floor(step * 1.0 / 100_000)
+        e = jnp.floor(step * 1.0 / 200_000)
         return jnp.exp2(-e) * lr
 
     optim = opax.chain(
@@ -168,9 +169,10 @@ def train(batch_size: int = CONFIG["batch_size"], lr: float = CONFIG["lr"]):
     backup = (step, net, optim)
     pmap_update_gru_mask = jax.pmap(update_gru_mask, axis_name="i")
     data_loader = get_data_loader(CONFIG["tf_data_dir"], batch_size * STEPS_PER_CALL)
+    pstep = jax.device_put_replicated(jnp.array(step), DEVICES)
     for batch in data_loader:
         step += STEPS_PER_CALL
-        net, optim, loss = multiple_train_step(net, optim, batch)
+        pstep, net, optim, loss = multiple_train_step(pstep, net, optim, batch)
         losses.append(loss)
 
         if step % 100 == 0:
@@ -180,15 +182,11 @@ def train(batch_size: int = CONFIG["batch_size"], lr: float = CONFIG["lr"]):
             start = end
             sparsity = net.gru_pruner.compute_sparsity(step).item()
             print(
-                "step  {:07d}  loss {:.3f}  LR {:.3e}  sparsity {:.0%}  {:.2f}s".format(
+                "step  {:07d}  loss {:.8f}  LR {:.3e}  sparsity {:.2%}  {:.2f}s".format(
                     step, loss, optim[-1].learning_rate[0], sparsity, duration
                 ),
                 flush=True,
             )
-
-        if step % net.gru_pruner.update_freq == 0:
-            pstep = jax.device_put_replicated(jnp.array(step), DEVICES)
-            net = pmap_update_gru_mask(pstep, net)
 
         if step % 1000 == 0:
             if math.isfinite(loss):

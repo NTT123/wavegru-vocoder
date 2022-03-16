@@ -101,7 +101,7 @@ def train(batch_size: int = CONFIG["batch_size"], lr: float = CONFIG["lr"]):
     )
 
     def lr_decay(step):
-        e = jnp.floor(step * 1.0 / 100_000)
+        e = jnp.floor(step * 1.0 / 200_000)
         return jnp.exp2(-e) * lr
 
     optim = opax.chain(
@@ -139,7 +139,7 @@ def train(batch_size: int = CONFIG["batch_size"], lr: float = CONFIG["lr"]):
                 flush=True,
             )
 
-        if step % net.gru_pruner.update_freq == 0:
+        if step % 100 == 0:
             net = fast_update_gru_mask(jnp.array(step), net)
 
         if step % 10_000 == 0:

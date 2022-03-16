@@ -88,19 +88,9 @@ class Pruner(pax.Module):
     Base class for pruners
     """
 
-    def __init__(self, update_freq=500):
-        super().__init__()
-        self.update_freq = update_freq
-
     def compute_sparsity(self, step):
-        """
-        Two-stages pruning
-        """
-        t = jnp.power(1 - (step * 1.0 - 1_000) / 300_000, 3)
-        z = 0.5 * jnp.clip(1.0 - t, a_min=0, a_max=1)
-        for i in range(4):
-            t = jnp.power(1 - (step * 1.0 - 1_000 - 400_000 - i * 200_000) / 100_000, 3)
-            z = z + 0.1 * jnp.clip(1 - t, a_min=0, a_max=1)
+        t = jnp.power(1 - (step * 1.0 - 1_000) / 200_000, 3)
+        z = 0.9 * jnp.clip(1.0 - t, a_min=0, a_max=1)
         return z
 
     def prune(self, step, weights):
@@ -121,8 +111,8 @@ class Pruner(pax.Module):
 
 
 class GRUPruner(Pruner):
-    def __init__(self, gru, update_freq=500):
-        super().__init__(update_freq=update_freq)
+    def __init__(self, gru):
+        super().__init__()
         self.xh_zr_fc_mask = jnp.ones_like(gru.xh_zr_fc.weight) == 1
         self.xh_h_fc_mask = jnp.ones_like(gru.xh_h_fc.weight) == 1
 
@@ -148,8 +138,8 @@ class GRUPruner(Pruner):
 
 
 class LinearPruner(Pruner):
-    def __init__(self, linear, update_freq=500):
-        super().__init__(update_freq=update_freq)
+    def __init__(self, linear):
+        super().__init__()
         self.mask = jnp.ones_like(linear.weight) == 1
 
     def __call__(self, linear: pax.Linear):
