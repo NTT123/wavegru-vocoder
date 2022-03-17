@@ -2,9 +2,12 @@
 WaveGRU model: melspectrogram => mu-law encoded waveform
 """
 
+from typing import Tuple
+
 import jax
 import jax.numpy as jnp
 import pax
+from pax import GRUState
 from tqdm.cli import tqdm
 
 
@@ -38,16 +41,20 @@ def tile_1d(x, factor):
     return x
 
 
-def up_block(dim, factor):
+def up_block(in_dim, out_dim, factor, relu=True):
     """
     Tile >> Conv >> BatchNorm >> ReLU
     """
-    return pax.Sequential(
+    f = pax.Sequential(
         lambda x: tile_1d(x, factor),
-        pax.Conv1D(dim, dim, 2 * factor, stride=1, padding="VALID", with_bias=False),
-        pax.LayerNorm(dim, -1, True, True),
-        ReLU(),
+        pax.Conv1D(
+            in_dim, out_dim, 2 * factor, stride=1, padding="VALID", with_bias=False
+        ),
+        pax.LayerNorm(out_dim, -1, True, True),
     )
+    if relu:
+        f >>= ReLU()
+    return f
 
 
 class Upsample(pax.Module):
@@ -55,18 +62,21 @@ class Upsample(pax.Module):
     Upsample melspectrogram to match raw audio sample rate.
     """
 
-    def __init__(self, input_dim, upsample_factors):
+    def __init__(self, input_dim, rnn_dim, upsample_factors):
         super().__init__()
         self.input_conv = pax.Sequential(
-            pax.Conv1D(input_dim, 512, 1, with_bias=False),
-            pax.LayerNorm(512, -1, True, True),
+            pax.Conv1D(input_dim, rnn_dim, 1, with_bias=False),
+            pax.LayerNorm(rnn_dim, -1, True, True),
         )
         self.upsample_factors = upsample_factors
         self.dilated_convs = [
-            dilated_residual_conv_block(512, 3, 1, 2 ** i) for i in range(5)
+            dilated_residual_conv_block(rnn_dim, 3, 1, 2 ** i) for i in range(5)
         ]
         self.up_factors = upsample_factors[:-1]
-        self.up_blocks = [up_block(512, x) for x in self.up_factors]
+        self.up_blocks = [up_block(rnn_dim, rnn_dim, x) for x in self.up_factors[:-1]]
+        self.up_blocks.append(
+            up_block(rnn_dim, 3 * rnn_dim, self.up_factors[-1], relu=False)
+        )
         self.final_tile = upsample_factors[-1]
 
     def __call__(self, x):
@@ -81,6 +91,41 @@ class Upsample(pax.Module):
 
         x = tile_1d(x, self.final_tile)
         return x
+
+
+class GRU(pax.Module):
+    """
+    A customized GRU module.
+    """
+
+    input_dim: int
+    hidden_dim: int
+
+    def __init__(self, hidden_dim: int):
+        super().__init__()
+        self.hidden_dim = hidden_dim
+        self.h_zrh_fc = pax.Linear(hidden_dim, hidden_dim * 3)
+
+    def initial_state(self, batch_size: int) -> GRUState:
+        """Create an all zeros initial state."""
+        return GRUState(jnp.zeros((batch_size, self.hidden_dim), dtype=jnp.float32))
+
+    def __call__(self, state: GRUState, x) -> Tuple[GRUState, jnp.ndarray]:
+        hidden = state.hidden
+        x_zrh = x
+        h_zrh = self.h_zrh_fc(hidden)
+        x_zr, x_h = jnp.split(x_zrh, [2 * self.hidden_dim], axis=-1)
+        h_zr, h_h = jnp.split(h_zrh, [2 * self.hidden_dim], axis=-1)
+
+        zr = x_zr + h_zr
+        zr = jax.nn.sigmoid(zr)
+        z, r = jnp.split(zr, 2, axis=-1)
+
+        h_hat = x_h + r * h_h
+        h_hat = jnp.tanh(h_hat)
+
+        h = (1 - z) * hidden + z * h_hat
+        return GRUState(h), h
 
 
 class Pruner(pax.Module):
@@ -113,28 +158,25 @@ class Pruner(pax.Module):
 class GRUPruner(Pruner):
     def __init__(self, gru):
         super().__init__()
-        self.xh_zr_fc_mask = jnp.ones_like(gru.xh_zr_fc.weight) == 1
-        self.xh_h_fc_mask = jnp.ones_like(gru.xh_h_fc.weight) == 1
+        self.h_zrh_fc_mask = jnp.ones_like(gru.h_zrh_fc.weight) == 1
 
     def __call__(self, gru: pax.GRU):
         """
         Apply mask after an optimization step
         """
-        zr_masked_weights = jnp.where(self.xh_zr_fc_mask, gru.xh_zr_fc.weight, 0)
-        gru = gru.replace_node(gru.xh_zr_fc.weight, zr_masked_weights)
-        h_masked_weights = jnp.where(self.xh_h_fc_mask, gru.xh_h_fc.weight, 0)
-        gru = gru.replace_node(gru.xh_h_fc.weight, h_masked_weights)
+        zrh_masked_weights = jnp.where(self.h_zrh_fc_mask, gru.h_zrh_fc.weight, 0)
+        gru = gru.replace_node(gru.h_zrh_fc.weight, zrh_masked_weights)
         return gru
 
     def update_mask(self, step, gru: pax.GRU):
         """
         Update internal masks
         """
-        xh_z_weight, xh_r_weight = jnp.split(gru.xh_zr_fc.weight, 2, axis=1)
-        xh_z_weight = self.prune(step, xh_z_weight)
-        xh_r_weight = self.prune(step, xh_r_weight)
-        self.xh_zr_fc_mask *= jnp.concatenate((xh_z_weight, xh_r_weight), axis=1)
-        self.xh_h_fc_mask *= self.prune(step, gru.xh_h_fc.weight)
+        z_weight, r_weight, h_weight = jnp.split(gru.h_zrh_fc.weight, 3, axis=1)
+        z_mask = self.prune(step, z_weight)
+        r_mask = self.prune(step, r_weight)
+        h_mask = self.prune(step, h_weight)
+        self.h_zrh_fc_mask *= jnp.concatenate((z_mask, r_mask, h_mask), axis=1)
 
 
 class LinearPruner(Pruner):
@@ -157,16 +199,16 @@ class LinearPruner(Pruner):
 
 class WaveGRU(pax.Module):
     """
-    WaveGRU vocoder model
+    WaveGRU vocoder model.
     """
 
-    def __init__(
-        self, mel_dim=80, embed_dim=32, rnn_dim=512, upsample_factors=(5, 4, 3, 5)
-    ):
+    def __init__(self, mel_dim=80, rnn_dim=512, upsample_factors=(5, 3, 20)):
         super().__init__()
-        self.embed = pax.Embed(256, embed_dim)
-        self.upsample = Upsample(input_dim=mel_dim, upsample_factors=upsample_factors)
-        self.rnn = pax.GRU(embed_dim + rnn_dim, rnn_dim)
+        self.embed = pax.Embed(256, 3 * rnn_dim)
+        self.upsample = Upsample(
+            input_dim=mel_dim, rnn_dim=rnn_dim, upsample_factors=upsample_factors
+        )
+        self.rnn = GRU(rnn_dim)
         self.o1 = pax.Linear(rnn_dim, rnn_dim)
         self.o2 = pax.Linear(rnn_dim, 256)
         self.gru_pruner = GRUPruner(self.rnn)
@@ -187,7 +229,7 @@ class WaveGRU(pax.Module):
         @jax.jit
         def step(rnn_state, mel, rng_key, x):
             x = self.embed(x)
-            x = jnp.concatenate((x, mel), axis=-1)
+            x = x + mel
             rnn_state, x = self.rnn(rnn_state, x)
             x = self.output(x)
             rng_key, next_rng_key = jax.random.split(rng_key, 2)
@@ -213,7 +255,7 @@ class WaveGRU(pax.Module):
         pad_left = (x.shape[1] - y.shape[1]) // 2
         pad_right = x.shape[1] - y.shape[1] - pad_left
         x = x[:, pad_left:-pad_right]
-        x = jnp.concatenate((x, y), axis=-1)
+        x = x + y
         _, x = pax.scan(
             self.rnn,
             self.rnn.initial_state(x.shape[0]),

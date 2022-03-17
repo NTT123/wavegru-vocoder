@@ -139,7 +139,6 @@ def train(batch_size: int = CONFIG["batch_size"], lr: float = CONFIG["lr"]):
     """
     net = WaveGRU(
         mel_dim=CONFIG["mel_dim"],
-        embed_dim=CONFIG["embed_dim"],
         rnn_dim=CONFIG["rnn_dim"],
         upsample_factors=CONFIG["upsample_factors"],
     )
@@ -167,7 +166,6 @@ def train(batch_size: int = CONFIG["batch_size"], lr: float = CONFIG["lr"]):
     start = time.perf_counter()
     losses = Deque(maxlen=500)
     backup = (step, net, optim)
-    pmap_update_gru_mask = jax.pmap(update_gru_mask, axis_name="i")
     data_loader = get_data_loader(CONFIG["tf_data_dir"], batch_size * STEPS_PER_CALL)
     pstep = jax.device_put_replicated(jnp.array(step), DEVICES)
     for batch in data_loader:

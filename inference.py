@@ -34,11 +34,11 @@ args = parser.parse_args()
 CONFIG = load_config()
 net = WaveGRU(
     mel_dim=CONFIG["mel_dim"],
-    embed_dim=CONFIG["embed_dim"],
     rnn_dim=CONFIG["rnn_dim"],
     upsample_factors=CONFIG["upsample_factors"],
 )
-_, net, _ = load_ckpt(net, None, args.model)
+step, net, _ = load_ckpt(net, None, args.model)
+print("Loaded checkpoint step", step)
 net = net.eval()
 net = jax.device_put(net)
 mel = np.load(args.mel).astype(np.float32)

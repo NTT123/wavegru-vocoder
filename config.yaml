@@ -7,11 +7,10 @@ mel_dim: 80
 n_fft: 2048
 
 ## wavegru
-embed_dim: 32
 rnn_dim: 512
 frames_per_sequence: 67
 num_pad_frames: 62
-upsample_factors: [5, 4, 3, 5]
+upsample_factors: [5, 3, 20]
 
 ## training
 batch_size : 256
