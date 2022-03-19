@@ -4,6 +4,7 @@ Train WaveGRU vocoder
 
 import os
 import time
+from functools import partial
 from pathlib import Path
 from typing import Deque
 
@@ -14,7 +15,7 @@ import opax
 import pax
 import tensorflow as tf
 
-from utils import load_ckpt, load_config, save_ckpt, update_gru_mask
+from utils import load_ckpt, load_config, lr_decay, save_ckpt, update_gru_mask
 from wavegru import WaveGRU
 
 CONFIG = load_config()
@@ -99,14 +100,10 @@ def train(batch_size: int = CONFIG["batch_size"], lr: float = CONFIG["lr"]):
         upsample_factors=CONFIG["upsample_factors"],
     )
 
-    def lr_decay(step):
-        e = jnp.floor(step * 1.0 / 200_000)
-        return jnp.exp2(-e) * lr
-
     optim = opax.chain(
         opax.clip_by_global_norm(1.0),
         opax.scale_by_adam(),
-        opax.scale_by_schedule(lr_decay),
+        opax.scale_by_schedule(partial(lr_decay, lr)),
     ).init(net.parameters())
 
     step = -1

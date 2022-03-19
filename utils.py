@@ -5,6 +5,7 @@ Utility functions
 import pickle
 from pathlib import Path
 
+import jax.numpy as jnp
 import pax
 import yaml
 
@@ -51,3 +52,11 @@ def update_gru_mask(step, net):
     net.o1_pruner.update_mask(step, net.o1)
     net.o2_pruner.update_mask(step, net.o2)
     return net
+
+
+def lr_decay(lr, step):
+    e = jnp.floor((step - 100_000) * 1.0 / 100_000)
+    e = jnp.clip(e, a_min=0, a_max=None)
+    e = jnp.exp2(-e) * lr
+    e = jnp.clip(e, a_min=1e-5, a_max=None)
+    return e

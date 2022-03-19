@@ -6,6 +6,7 @@ Usage:
     poetry run python inference.py --model model.ckpt --mel mel.npy --output ft.npz --no-gru
 
 """
+import time
 from argparse import ArgumentParser
 from pathlib import Path
 
@@ -50,8 +51,13 @@ mel = np.pad(
     [(0, 0), (pad, pad), (0, 0)],
     constant_values=np.log(CONFIG["mel_min"]),
 )
+
+
+t1 = time.perf_counter()
 x = pax.pure(lambda net, mel: net.inference(mel, no_gru=args.no_gru))(net, mel)
 x = jax.device_get(x)
+t2 = time.perf_counter()
+print("Duration", t2 - t1)
 
 if args.no_gru:
     np.savez_compressed(args.output, mel=x)

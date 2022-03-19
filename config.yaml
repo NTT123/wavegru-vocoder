@@ -7,7 +7,7 @@ mel_dim: 80
 n_fft: 2048
 
 ## wavegru
-rnn_dim: 512
+rnn_dim: 1024
 frames_per_sequence: 67
 num_pad_frames: 62
 upsample_factors: [5, 3, 20]
@@ -15,6 +15,6 @@ upsample_factors: [5, 3, 20]
 ## training
 batch_size : 256
 lr: 1024.0e-6
-model_prefix: "wavegru_vocoder_dilated_conv"
+model_prefix: "wavegru_vocoder_1024"
 tf_data_dir : "./tf_data"
 ckpt_dir : "./ckpts"
