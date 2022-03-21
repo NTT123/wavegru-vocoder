@@ -110,7 +110,13 @@ class GRU(pax.Module):
     def __init__(self, hidden_dim: int):
         super().__init__()
         self.hidden_dim = hidden_dim
-        self.h_zrh_fc = pax.Linear(hidden_dim, hidden_dim * 3)
+        self.h_zrh_fc = pax.Linear(
+            hidden_dim,
+            hidden_dim * 3,
+            w_init=jax.nn.initializers.variance_scaling(
+                1, "fan_out", "truncated_normal"
+            ),
+        )
 
     def initial_state(self, batch_size: int) -> GRUState:
         """Create an all zeros initial state."""
