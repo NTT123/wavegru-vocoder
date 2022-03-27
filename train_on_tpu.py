@@ -105,32 +105,33 @@ def loss_fn(net, batch):
     return loss, net
 
 
-@jax.jit
-def train_step(net_optim_step, batch):
+def train_step(net_optim_step_ema, batch):
     """
     one training step
     """
-    net, optim, step = net_optim_step
+    net, optim, step, ema_net = net_optim_step_ema
     step = step + 1
     (loss, net), grads = pax.value_and_grad(loss_fn, has_aux=True)(net, batch)
     jax.lax.pmean(grads, axis_name="i")
 
     net, optim = opax.apply_gradients(net, optim, grads)
-    net = update_gru_mask(step, net)
     net = net.replace(rnn=net.gru_pruner(net.rnn))
     net = net.replace(o1=net.o1_pruner(net.o1))
     net = net.replace(o2=net.o2_pruner(net.o2))
-    return (net, optim, step), loss
+    ema_net, _ = pax.purecall(ema_net, net)
+    return (net, optim, step, ema_net), loss
 
 
 @partial(jax.pmap, axis_name="i")
-def multiple_train_step(step, net, optim, batch):
+def multiple_train_step(step, net, optim, batch, ema_net):
     """
     multiple training steps
     """
     batch = jax.tree_map(partial(batch_reshape, K=STEPS_PER_CALL), batch)
-    (net, optim, step), losses = pax.scan(train_step, (net, optim, step), batch)
-    return step, net, optim, jnp.mean(losses)
+    (net, optim, step, ema_net), losses = pax.scan(
+        train_step, (net, optim, step, ema_net), batch
+    )
+    return step, net, optim, jnp.mean(losses), ema_net
 
 
 def train(batch_size: int = CONFIG["batch_size"], lr: float = CONFIG["lr"]):
@@ -146,6 +147,7 @@ def train(batch_size: int = CONFIG["batch_size"], lr: float = CONFIG["lr"]):
     optim = opax.chain(
         opax.clip_by_global_norm(1.0),
         opax.scale_by_adam(),
+        opax.add_decayed_weights(1e-2),
         opax.scale_by_schedule(partial(lr_decay, lr)),
     ).init(net.parameters())
 
@@ -156,42 +158,62 @@ def train(batch_size: int = CONFIG["batch_size"], lr: float = CONFIG["lr"]):
         step, net, optim = load_ckpt(net, optim, ckpts[-1])
         net, optim = jax.device_put((net, optim))
 
-    # replicate on multiple devices
-    net, optim = jax.device_put_replicated((net, optim), DEVICES)
+    ema_net = pax.EMA(net.copy(), 0.9999, debias=False, allow_int=True)
 
+    # replicate on multiple devices
+    net, optim, ema_net = jax.device_put_replicated((net, optim, ema_net), DEVICES)
+
+    pmap_update_gru_mask = jax.pmap(update_gru_mask, axis_name="i")
     start = time.perf_counter()
     losses = Deque(maxlen=500)
-    backup = (step, net, optim)
-    data_loader = get_data_loader(CONFIG["tf_data_dir"], batch_size * STEPS_PER_CALL)
     pstep = jax.device_put_replicated(jnp.array(step), DEVICES)
-    for batch in data_loader:
-        step += STEPS_PER_CALL
-        pstep, net, optim, loss = multiple_train_step(pstep, net, optim, batch)
-        losses.append(loss)
 
-        if step % 100 == 0:
-            loss = jnp.mean(sum(losses)).item() / len(losses)
-            end = time.perf_counter()
-            duration = end - start
-            start = end
-            sparsity = net.gru_pruner.compute_sparsity(step).item()
-            print(
-                "step  {:07d}  loss {:.8f}  LR {:.3e}  sparsity {:.2%}  {:.2f}s".format(
-                    step, loss, optim[-1].learning_rate[0], sparsity, duration
-                ),
-                flush=True,
+    backup = (step, pstep, net, optim, losses, ema_net)
+
+    while True:
+        data_loader = get_data_loader(
+            CONFIG["tf_data_dir"], batch_size * STEPS_PER_CALL
+        )
+        for batch in data_loader:
+            step += STEPS_PER_CALL
+            pstep, net, optim, loss, ema_net = multiple_train_step(
+                pstep, net, optim, batch, ema_net
             )
+            losses.append(loss)
 
-        if step % 1000 == 0:
-            if math.isfinite(loss):
-                backup = (step, net, optim)
-            else:
-                step, net, optim = backup
-                print("nan loss detected! Use backup checkpoint at step", step)
+            if step % 100 == 0:
+                loss = jnp.mean(sum(losses)).item() / len(losses)
+                end = time.perf_counter()
+                duration = end - start
+                start = end
+                sparsity = net.gru_pruner.compute_sparsity(step).item()
+                print(
+                    "step  {:07d}  loss {:.8f}  LR {:.3e}  gradnorm {:.2f}  sparsity {:.2%}  {:.2f}s".format(
+                        step,
+                        loss,
+                        optim[-1].learning_rate[0],
+                        optim[0].global_norm[0],
+                        sparsity,
+                        duration,
+                    ),
+                    flush=True,
+                )
 
-        if step % 10_000 == 0:
-            net_, optim_ = jax.tree_map(lambda x: x[0], (net, optim))
-            save_ckpt(step, net_, optim_, CONFIG["ckpt_dir"], MODEL_PREFIX)
+                if not math.isfinite(loss):
+                    step, pstep, net, optim, losses, ema_net = backup
+                    print("nan loss detected! Use backup checkpoint at step", step)
+                    break
+
+            if step % CONFIG["pruning_mask_update_freq"] == 0:
+                net = pmap_update_gru_mask(pstep, net)
+
+            if step % 1000 == 0:
+                if math.isfinite(loss):
+                    backup = (step, pstep, net, optim, losses)
+
+            if step % 10_000 == 0:
+                net_, optim_ = jax.tree_map(lambda x: x[0], (ema_net.averages, optim))
+                save_ckpt(step, net_, optim_, CONFIG["ckpt_dir"], MODEL_PREFIX)
 
 
 if __name__ == "__main__":
