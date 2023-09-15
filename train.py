@@ -48,11 +48,11 @@ def get_data_loader(data_dir: Path, batch_size: int):
     return a data loader of mini-batches
     """
     it = (
-        tf.data.experimental.load(str(data_dir), compression="GZIP")
+        tf.data.Dataset.load(str(data_dir), compression="GZIP")
         .repeat()
-        .shuffle(200_000)
-        .batch(batch_size)
-        .prefetch(tf.data.AUTOTUNE)
+        .shuffle(200_000 // batch_size * batch_size)
+        .batch(batch_size, drop_remainder=True)
+        .prefetch(8)
         .as_numpy_iterator()
     )
     return double_buffer(it)
